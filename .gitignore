@@ -1,0 +1,14 @@
+node_modules/
+dist/
+web/dist/
+backend/server
+*.exe
+.env
+.env.local
+.DS_Store
+nakama/data/
+*.log
+.vite/
+coverage/
+*.tsbuildinfo
+web/dist/

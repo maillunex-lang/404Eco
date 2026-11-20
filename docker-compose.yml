@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bashkir
+      POSTGRES_PASSWORD: bashkir
+      POSTGRES_DB: bashkir_eco
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bashkir -d bashkir_eco"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Nakama needs its own Postgres DB for social/match state
+  nakama-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nakama
+      POSTGRES_PASSWORD: nakama
+      POSTGRES_DB: nakama
+    volumes:
+      - nakama_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nakama -d nakama"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nakama:
+    image: heroiclabs/nakama:3.26.0
+    entrypoint:
+      - /bin/sh
+      - -ecx
+      - >
+        /nakama/nakama migrate up --database.address nakama:nakama@nakama-db:5432/nakama &&
+        exec /nakama/nakama
+        --name bashkir-eco
+        --database.address nakama:nakama@nakama-db:5432/nakama
+        --logger.level INFO
+        --session.token_expiry_sec 7200
+        --runtime.path /nakama/data/modules
+        --runtime.http_key bashkirecokey
+        --socket.server_key bashkirecoserver
+        --console.username admin
+        --console.password adminpass
+    depends_on:
+      nakama-db:
+        condition: service_healthy
+    ports:
+      - "7349:7349"
+      - "7350:7350"
+      - "7351:7351"
+    volumes:
+      - ./nakama/modules:/nakama/data/modules:ro
+
+  game-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://bashkir:bashkir@postgres:5432/bashkir_eco?sslmode=disable
+      HTTP_ADDR: ":8080"
+      TICK_INTERVAL_MS: "2000"
+      NAKAMA_HTTP_KEY: bashkirecokey
+      NAKAMA_URL: http://nakama:7350
+      CORS_ORIGIN: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - game-api
+      - nakama
+
+volumes:
+  pgdata:
+  nakama_pgdata:
