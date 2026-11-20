@@ -1,0 +1,20 @@
+name: bashkir-eco
+data_dir: "./data"
+
+logger:
+  level: "INFO"
+
+session:
+  token_expiry_sec: 7200
+
+socket:
+  server_key: "bashkirecoserver"
+
+runtime:
+  path: "./modules"
+  http_key: "bashkirecokey"
+  js_entrypoint: "bashkir_eco.js"
+
+console:
+  username: "admin"
+  password: "adminpass"
