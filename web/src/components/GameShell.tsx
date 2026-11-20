@@ -11,7 +11,6 @@ type Props = {
   myFirms: Firm[];
   nakamaOnline: boolean;
   onLogout: () => void;
-  onRefreshPlayer: (p: Player) => void;
   setError: (e: string | null) => void;
   error: string | null;
 };
@@ -36,22 +35,32 @@ export function GameShell({
   const [industry, setIndustry] = useState("retail");
 
   useEffect(() => {
-    if (!mapRef.current || sceneRef.current) return;
+    const el = mapRef.current;
+    if (!el) return;
+    let cancelled = false;
     const scene = new MapScene({
-      mount: mapRef.current,
+      mount: el,
       onSelect: (s) => {
         setSel(s);
         setTab("city");
       },
     });
     sceneRef.current = scene;
-    scene.ready.then(() => {
-      scene.setData(snap.cities, snap.firms, snap.properties);
-    });
+    scene.ready
+      .then(() => {
+        if (cancelled) return;
+        scene.setData(snap.cities, snap.firms, snap.properties);
+      })
+      .catch((err) => {
+        console.error("MapScene init failed", err);
+        setError(err instanceof Error ? err.message : "Карта не загрузилась");
+      });
     return () => {
+      cancelled = true;
       scene.destroy();
-      sceneRef.current = null;
+      if (sceneRef.current === scene) sceneRef.current = null;
     };
+    // intentionally once on mount; data synced below
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

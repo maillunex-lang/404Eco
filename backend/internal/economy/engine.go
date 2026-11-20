@@ -526,6 +526,9 @@ func (e *Engine) produceAll() {
 		for pid, need := range r.Inputs {
 			used := need * maxBatches
 			firm.Inventory[pid] -= used
+			if firm.Inventory[pid] < 0 {
+				firm.Inventory[pid] = 0
+			}
 			e.demand[pid] += used
 		}
 		for pid, out := range r.Outputs {
@@ -619,10 +622,12 @@ func (e *Engine) matchOrders() {
 }
 
 func (e *Engine) retailSales() {
+	consumerFacing := map[string]bool{
+		"retail":  true,
+		"tourism": true,
+		"food":    true,
+	}
 	for _, firm := range e.firms {
-		if firm.Industry != "retail" && firm.Industry != "tourism" && firm.Industry != "food" {
-			// also sell outputs on local consumer market
-		}
 		cityPop := 50000.0
 		cityWealth := 1.0
 		for _, c := range e.cities {
@@ -632,38 +637,58 @@ func (e *Engine) retailSales() {
 				break
 			}
 		}
-		demandForce := (cityPop / 100000) * cityWealth * (0.5 + firm.Brand/100) * (0.5 + firm.Quality/100)
+		demandForce := (cityPop / 500000) * cityWealth * (0.4 + firm.Brand/200) * (0.4 + firm.Quality/200)
 		revenue := 0.0
+
 		for pid, qty := range firm.Inventory {
-			if qty <= 0 {
+			if qty <= 0.01 {
+				if qty < 0 {
+					firm.Inventory[pid] = 0
+				}
 				continue
 			}
 			price := firm.Pricing[pid]
 			if price <= 0 {
-				price = e.prices[pid] * 1.2
+				price = e.prices[pid] * 1.15
 			}
 			base := e.prices[pid]
 			if base <= 0 {
 				continue
 			}
-			attract := clamp(2.0-(price/base), 0.1, 2.0)
-			sold := math.Min(qty, demandForce*attract*3)
-			if firm.Industry == "retail" {
-				sold *= 1.5
+			attract := clamp(1.8-(price/base), 0.15, 1.6)
+
+			var sold float64
+			if consumerFacing[firm.Industry] {
+				// Local consumers — limited daily throughput.
+				sold = math.Min(qty, demandForce*attract*8)
+				if firm.Industry == "retail" {
+					sold = math.Min(qty, demandForce*attract*12)
+				}
+			} else {
+				// Producers only drip-sell surplus into wholesale, not the whole warehouse.
+				surplus := qty - 25
+				if surplus <= 0 {
+					continue
+				}
+				sold = math.Min(surplus*0.08, demandForce*attract*2)
+				price = base * 0.92 // wholesale discount
 			}
-			if sold < 0.1 {
+			if sold < 0.05 {
 				continue
 			}
-			firm.Inventory[pid] -= sold
-			rev := sold * price
-			revenue += rev
+			if sold > qty {
+				sold = qty
+			}
+			firm.Inventory[pid] = qty - sold
+			revenue += sold * price
 			e.demand[pid] += sold
-			e.prices[pid] = e.prices[pid]*0.98 + price*0.02
+			e.prices[pid] = e.prices[pid]*0.985 + price*0.015
 		}
 		if player := e.players[firm.PlayerID]; player != nil {
 			player.Cash += revenue
 		}
-		firm.CashflowD = firm.CashflowD*0.8 + revenue*0.2
+		// CashflowD ≈ smoothed daily net sales (not cumulative fortune).
+		firm.CashflowD = firm.CashflowD*0.7 + revenue*0.3
 	}
 }
 

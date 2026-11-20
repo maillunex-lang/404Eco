@@ -6,14 +6,12 @@ import { Landing } from "./components/Landing";
 import { GameShell } from "./components/GameShell";
 
 export default function App() {
-  const [player, setPlayer] = useState<Player | null>(() => {
-    const raw = localStorage.getItem("eco_player");
-    return raw ? (JSON.parse(raw) as Player) : null;
-  });
+  const [player, setPlayer] = useState<Player | null>(null);
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nakamaOnline, setNakamaOnline] = useState(false);
   const [booting, setBooting] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -21,12 +19,32 @@ export default function App() {
     (async () => {
       try {
         const s = await api.snapshot();
-        if (!cancelled) setSnap(s);
+        if (cancelled) return;
+        setSnap(s);
+
+        const raw = localStorage.getItem("eco_player");
+        if (raw) {
+          try {
+            const cached = JSON.parse(raw) as Player;
+            const live = s.players.find((p) => p.id === cached.id);
+            if (live) {
+              setPlayer(live);
+            } else {
+              // API restarted (in-memory) — drop stale session
+              localStorage.removeItem("eco_player");
+            }
+          } catch {
+            localStorage.removeItem("eco_player");
+          }
+        }
+
         es = api.stream((next) => {
           if (!cancelled) setSnap(next);
         });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "API недоступен");
+      } finally {
+        if (!cancelled) setReady(true);
       }
     })();
     return () => {
@@ -63,6 +81,14 @@ export default function App() {
     setPlayer(null);
   }
 
+  if (!ready) {
+    return (
+      <div style={{ placeSelf: "center", color: "var(--muted)" }}>
+        {error || "Загрузка…"}
+      </div>
+    );
+  }
+
   if (!player) {
     return <Landing onStart={start} booting={booting} error={error} />;
   }
@@ -75,7 +101,6 @@ export default function App() {
     );
   }
 
-  // Keep player cash fresh from snapshot
   const livePlayer = snap.players.find((p) => p.id === player.id) || player;
 
   return (
@@ -85,10 +110,6 @@ export default function App() {
       myFirms={myFirms}
       nakamaOnline={nakamaOnline}
       onLogout={logout}
-      onRefreshPlayer={(p) => {
-        setPlayer(p);
-        localStorage.setItem("eco_player", JSON.stringify(p));
-      }}
       setError={setError}
       error={error}
     />
